@@ -1,0 +1,454 @@
+openapi: 3.0.1
+paths:
+  /eobject/delete/{id}:
+    delete:
+      description: Deletes an EObject with an specified eClassUri and id.
+      operationId: delete
+      parameters:
+      - name: eClassUri
+        in: query
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: default response
+          content:
+            '*/*': {}
+  /eobject/exists{id}:
+    get:
+      description: Check existens of an EObject with an specified eClassUri and id.
+      operationId: exists
+      parameters:
+      - name: eClassUri
+        in: query
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: default response
+          content:
+            '*/*': {}
+  /eobject/hello:
+    get:
+      operationId: hello
+      responses:
+        default:
+          description: default response
+          content:
+            '*/*':
+              schema:
+                type: string
+  /eobject/load/{id}:
+    get:
+      description: Loads and returns an EObject for an specified eClassUri and id.
+      operationId: load
+      parameters:
+      - name: eClassUri
+        in: query
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: default response
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/EObject'
+  /eobject/loadall:
+    get:
+      description: Loads and returns a list of EObject for an specified eClassUri.
+      operationId: loadAll
+      parameters:
+      - name: eClassUri
+        in: query
+        schema:
+          type: string
+      - name: projection
+        in: query
+        schema:
+          type: array
+          properties:
+            empty:
+              type: boolean
+          items:
+            type: string
+      responses:
+        default:
+          description: default response
+          content:
+            '*/*':
+              schema:
+                type: array
+                properties:
+                  empty:
+                    type: boolean
+                items:
+                  $ref: '#/components/schemas/EObject'
+  /eobject/save:
+    post:
+      description: Saves an EObject.
+      operationId: save
+      parameters:
+      - name: eObject
+        in: query
+        schema:
+          $ref: '#/components/schemas/EObject'
+      responses:
+        default:
+          description: default response
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/EObject'
+  /eobject/saveall:
+    post:
+      description: Saves a list of EObjects.
+      operationId: saveAll
+      parameters:
+      - name: eObjects
+        in: query
+        schema:
+          type: array
+          properties:
+            empty:
+              type: boolean
+          items:
+            $ref: '#/components/schemas/EObject'
+      responses:
+        default:
+          description: default response
+          content:
+            '*/*':
+              schema:
+                type: array
+                properties:
+                  empty:
+                    type: boolean
+                items:
+                  $ref: '#/components/schemas/EObject'
+  /epackage/delete:
+    delete:
+      description: Deletes an ePackage with an specified ePackageUri.
+      operationId: delete_1
+      parameters:
+      - name: ePackageUri
+        in: query
+        schema:
+          type: string
+      responses:
+        default:
+          description: default response
+          content:
+            '*/*': {}
+  /epackage/exists:
+    get:
+      description: Check existens of an EObject with an specified eClassUri and id.
+      operationId: exists_1
+      parameters:
+      - name: ePackageUri
+        in: query
+        schema:
+          type: string
+      responses:
+        default:
+          description: default response
+          content:
+            '*/*': {}
+  /epackage/hello:
+    get:
+      operationId: hello_1
+      responses:
+        default:
+          description: default response
+          content:
+            '*/*':
+              schema:
+                type: string
+  /epackage/load:
+    get:
+      description: Loads and returns an EPackage for an specified ePackageUri.
+      operationId: load_1
+      parameters:
+      - name: ePackageUri
+        in: query
+        schema:
+          type: string
+      responses:
+        default:
+          description: default response
+          content:
+            '*/*':
+              schema:
+                $ref: '#/components/schemas/EPackage'
+  /epackage/loadall:
+    get:
+      description: Loads and returns all EPackage for an specified ePackageUri.
+      operationId: loadAll_1
+      responses:
+        default:
+          description: default response
+          content:
+            '*/*':
+              schema:
+                type: array
+                properties:
+                  empty:
+                    type: boolean
+                items:
+                  type: string
+  /epackage/save:
+    post:
+      description: Saves an EObject.
+      operationId: save_1
+      requestBody:
+        content:
+          '*/*':
+            schema:
+              $ref: '#/components/schemas/EPackage'
+      responses:
+        default:
+          description: default response
+          content:
+            '*/*': {}
+  /epackage/saveall:
+    post:
+      description: Saves a list of Epackages.
+      operationId: saveAll_1
+      parameters:
+      - name: ePackages
+        in: query
+        schema:
+          type: array
+          properties:
+            empty:
+              type: boolean
+          items:
+            $ref: '#/components/schemas/EPackage'
+      responses:
+        default:
+          description: default response
+          content:
+            '*/*': {}
+components:
+  schemas:
+    EObject:
+      type: object
+    EListEObject:
+      type: array
+      properties:
+        empty:
+          type: boolean
+      items:
+        $ref: '#/components/schemas/EObject'
+    EListString:
+      type: array
+      properties:
+        empty:
+          type: boolean
+      items:
+        type: string
+    EAnnotation:
+      type: object
+      properties:
+        emodelElement:
+          $ref: '#/components/schemas/EModelElement'
+        source:
+          type: string
+        details:
+          type: array
+          properties:
+            empty:
+              type: boolean
+          items:
+            type: object
+            properties:
+              value:
+                type: string
+              key:
+                type: string
+        references:
+          type: array
+          properties:
+            empty:
+              type: boolean
+          items:
+            $ref: '#/components/schemas/EObject'
+        contents:
+          type: array
+          properties:
+            empty:
+              type: boolean
+          items:
+            $ref: '#/components/schemas/EObject'
+    EClassifier:
+      type: object
+      properties:
+        instanceTypeName:
+          type: string
+        epackage:
+          $ref: '#/components/schemas/EPackage'
+        etypeParameters:
+          type: array
+          properties:
+            empty:
+              type: boolean
+          items:
+            $ref: '#/components/schemas/ETypeParameter'
+        instanceClassName:
+          type: string
+        classifierID:
+          type: integer
+          format: int32
+        defaultValue:
+          type: object
+        name:
+          type: string
+        eannotations:
+          type: array
+          properties:
+            empty:
+              type: boolean
+          items:
+            $ref: '#/components/schemas/EAnnotation'
+    EFactory:
+      type: object
+      properties:
+        epackage:
+          $ref: '#/components/schemas/EPackage'
+        eannotations:
+          type: array
+          properties:
+            empty:
+              type: boolean
+          items:
+            $ref: '#/components/schemas/EAnnotation'
+    EGenericType:
+      type: object
+      properties:
+        eclassifier:
+          $ref: '#/components/schemas/EClassifier'
+        eupperBound:
+          $ref: '#/components/schemas/EGenericType'
+        erawType:
+          $ref: '#/components/schemas/EClassifier'
+        elowerBound:
+          $ref: '#/components/schemas/EGenericType'
+        etypeParameter:
+          $ref: '#/components/schemas/ETypeParameter'
+    EListEAnnotation:
+      type: array
+      properties:
+        empty:
+          type: boolean
+      items:
+        $ref: '#/components/schemas/EAnnotation'
+    EListEClassifier:
+      type: array
+      properties:
+        empty:
+          type: boolean
+      items:
+        $ref: '#/components/schemas/EClassifier'
+    EListEGenericType:
+      type: array
+      properties:
+        empty:
+          type: boolean
+      items:
+        $ref: '#/components/schemas/EGenericType'
+    EListEPackage:
+      type: array
+      properties:
+        empty:
+          type: boolean
+      items:
+        $ref: '#/components/schemas/EPackage'
+    EListETypeParameter:
+      type: array
+      properties:
+        empty:
+          type: boolean
+      items:
+        $ref: '#/components/schemas/ETypeParameter'
+    EMapStringString:
+      type: array
+      properties:
+        empty:
+          type: boolean
+      items:
+        type: object
+        properties:
+          value:
+            type: string
+          key:
+            type: string
+    EModelElement:
+      type: object
+    EPackage:
+      type: object
+      properties:
+        nsURI:
+          type: string
+        nsPrefix:
+          type: string
+        efactoryInstance:
+          $ref: '#/components/schemas/EFactory'
+        eclassifiers:
+          type: array
+          properties:
+            empty:
+              type: boolean
+          items:
+            $ref: '#/components/schemas/EClassifier'
+        esubpackages:
+          type: array
+          properties:
+            empty:
+              type: boolean
+          items:
+            $ref: '#/components/schemas/EPackage'
+        esuperPackage:
+          $ref: '#/components/schemas/EPackage'
+        name:
+          type: string
+        eannotations:
+          type: array
+          properties:
+            empty:
+              type: boolean
+          items:
+            $ref: '#/components/schemas/EAnnotation'
+    ETypeParameter:
+      type: object
+      properties:
+        ebounds:
+          type: array
+          properties:
+            empty:
+              type: boolean
+          items:
+            $ref: '#/components/schemas/EGenericType'
+        name:
+          type: string
+        eannotations:
+          type: array
+          properties:
+            empty:
+              type: boolean
+          items:
+            $ref: '#/components/schemas/EAnnotation'
