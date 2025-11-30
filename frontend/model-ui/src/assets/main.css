@@ -1,18 +1,13 @@
 @import './base.css';
 
-body{
+/*body{
   background: #f9fafb;
-}
+}*/
 #app {
   width: 100%;
   margin: 0 auto;
   padding: 0rem;
   font-weight: normal;
-  display: grid;
-  grid-template-columns: 350px 1fr;
-
-
-
 }
 
 a,

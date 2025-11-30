@@ -34,7 +34,7 @@ export class EcoreUtils {
     static setEObjectID(eObject: EObject, id: string) {
         let eClass = eObject.eClass()
         let eIDAttribute = eClass.eIDAttribute
-        if ((eIDAttribute = null)) throw new Error("The object doesn't have an ID feature.")
+        if (eIDAttribute == null) throw new Error("The object doesn't have an ID feature.")
         else if (id.length == 0) eObject.eUnset(eIDAttribute)
         else eObject.eSet(eIDAttribute, this.createFromString(eIDAttribute.eAttributeType, id))
     }

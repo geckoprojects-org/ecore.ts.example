@@ -1,5 +1,4 @@
 <script setup lang="ts">
-  import Card from 'primevue/card';
   import {computed} from "vue";
 
   import {useComponentRegistry} from "@/modelUiBuilder/impl/composeable/ComponentRegistry";

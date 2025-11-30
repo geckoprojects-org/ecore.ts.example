@@ -8,15 +8,38 @@ import {useResource} from "@/modelUiBuilder/impl/composeable/Resource";
   const route = useRoute();
   const {store} = useResource()
   const instance = ref<EObject|undefined>(undefined);
-import {useInstanceHolder} from "@/modelUiBuilder/impl/composeable/InstanceHolder";
-import {EObject, URI} from "@/ecore";
+import {useDataInstanceHolder} from "@/modelUiBuilder/impl/composeable/InstanceHolder";
+import {EObject, URI, EPackageExt} from "@/ecore";
 import AppMenu from "@/components/AppMenu.vue";
 import MenubarV from "@/components/MenubarV.vue";
 import config from "@/config/config";
+import ShortUniqueId from "short-unique-id";
+
+const uid = new ShortUniqueId({ length: 10 });
 
   onMounted(async ()=>{
-    const {loadResource,store} = useResource()
-    await loadResource(new URI(config.ECORE_PATH));
+    const {loadResource, getResource, getResourceSet, ecorePackage} = useResource()
+
+    // Load the MetaModel (Conference.ecore) - but don't add it to DataInstanceHolder
+    await loadResource(new URI('Conference.ecore'), 'Conference.ecore');
+
+    // Create an empty data resource for instances
+    const dataHolder = useDataInstanceHolder();
+
+    // Only create a new resource if one doesn't exist yet
+    const resourceSet = getResourceSet();
+    const existingResource = resourceSet?.getResource(new URI('data://instances'), false);
+
+    if(!existingResource){
+      // Create a resource for data instances
+      const dataResource = resourceSet?.createResource(new URI('data://instances'));
+
+      // Store the resource in the DataInstanceHolder
+      if(dataResource){
+        dataHolder.setResource(dataResource);
+      }
+    }
+
     loadup();
   });
   watch(route,()=>{
@@ -24,8 +47,8 @@ import config from "@/config/config";
   })
   const loadup = ()=>{
   const {instanceid} = (router.currentRoute.value.params);
-  console.log(store.value);
-  instance.value = useInstanceHolder().getInstance(instanceid as string);
+  const dataHolder = useDataInstanceHolder();
+  instance.value = dataHolder.getInstance(instanceid as string);
 }
 
 
@@ -33,15 +56,21 @@ import config from "@/config/config";
 </script>
 
 <template>
-  <AppMenu class="appmenu"></AppMenu>
-  <div class="flex">
-    <MenubarV></MenubarV>
+  <div class="instance-wrapper">
+    <AppMenu class="appmenu"></AppMenu>
+    <div class="flex">
+      <MenubarV></MenubarV>
 
-  <ComposerVue v-model="instance" v-if="instance"></ComposerVue>
+    <ComposerVue v-model="instance" v-if="instance"></ComposerVue>
+    </div>
   </div>
 </template>
 
 <style scoped lang="scss">
+.instance-wrapper {
+  display: grid;
+  grid-template-columns: 350px 1fr;
+}
 .flex{
   display: grid;
   grid-template-rows: 110px 1fr;

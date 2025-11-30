@@ -1,7 +1,7 @@
 <script setup lang="ts">
 
 
-import {type Component, computed, onMounted, ref, watch} from "vue";
+import {type Component, computed, nextTick, onMounted, ref, toRaw, watch, triggerRef, provide} from "vue";
 //@ts-ignore
 
 
@@ -14,210 +14,407 @@ import {
   EClassifier, EDataType,
   EList,
   EObject,
+  EcoreUtils,
   EPackage,
   EPackageExt,
-  EReference,
+  EReference, EResourceSetImpl,
   isEClass,
   isEDataType, isEPackage,
-  URI
+  URI, EResourceImpl, EcoreFactoryImpl, EcorePackageImpl, EcoreConstants, BasicEObjectList, EAttribute, EcoreFactory, EResource
 } from "@/ecore";
 
 import {Dimensions, MarkerType, NodeDragEvent, Position, useVueFlow, VueFlow, XYPosition} from '@vue-flow/core'
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
 import { MiniMap } from '@vue-flow/minimap';
-import {useInstanceHolder} from "@/modelUiBuilder/impl/composeable/InstanceHolder";
 import PackageV from "@/components/Flow/PackageV.vue";
 import ScrollPanel from 'primevue/scrollpanel';
 import ClassV from "@/components/Flow/ClassV.vue";
 import {useRouter} from "vue-router";
-
 import type {Node} from '@vue-flow/core';
 import {MODELING_PARAM} from "@/router";
 import MenubarV from "@/components/MenubarV.vue";
 import Tree from "@/components/Tree.vue";
 import {useDataTypeHolder} from "@/modelUiBuilder/impl/composeable/DataTypeHolder";
 import config from "@/config/config";
+import {DefaultApi} from "../../openapi/client";
+import Resources from "@/modelUiBuilder/impl/Resources";
+import ShortUniqueId from "short-unique-id";
+import {useLayout} from "@/composables/layout";
+import {useColaLayout} from "@/composables/colaLayout";
+import {AbstractEAdapter} from "@/ecore";
+import type {ENotification, EAdapter} from "@/ecore";
+import {useObjectId} from "@/composables/useObjectId";
+
+// Adapter to listen to resource changes and trigger Vue reactivity
+class ResourceChangeAdapter extends AbstractEAdapter {
+    constructor(private resourceRef: any) {
+        super();
+    }
+
+    notifyChanged(notification: ENotification): void {
+        // Trigger re-computation when resource contents change
+        triggerRef(this.resourceRef);
+    }
+}
+
 const model = ref<EObject|undefined>(undefined);
-const instanceHolder = useInstanceHolder();
+const resources = ref<EResource[]>([]);
 const router = useRouter();
-const {onConnect,addEdges,onNodeDragStop,getNodes} = useVueFlow()
+
+const {getObjectId, getObjectById} = useObjectId();
+
+// Provide resources to child components (Tree.vue)
+provide('modelingResources', resources);
+
+const {onConnect,addEdges,onNodeDragStop,getNodes,fitView,setNodes,setCenter,getNode} = useVueFlow()
 const PositionHolder = ref<Map<String,XYPosition>>(new Map<String,XYPosition>());
 const DimensionsHolder = ref<Map<String,any>>(new Map<String,any>());
+
+
+
 onMounted(async ()=> {
-  const {loadResource,store,getResource} = useResource()
+
+  const {loadResource,store,getResource,ecorePackage,getResourceSet,efc} = useResource()
   const {setDataTypes} = useDataTypeHolder()
 
-  await loadResource(new URI(config.ECORE_PATH));
-  Array.from(getResource(config.ECORE_PATH)?.eAllContents()??[]).forEach(obj=>{
-    if (isEDataType(<EClassifier>obj)){
-      const dt = obj as EDataType;
-      setDataTypes(dt.name,dt);
-    }
-  })
+  const data = await fetch('Conference.ecore');
+  const dataAsText = await data.text();
+  console.log(dataAsText)
 
+
+  const eoi = ecorePackage;
+  const reSet = getResourceSet()
+  reSet?.getPackageRegistry().registerPackage(eoi);
+
+
+  const resImport = reSet?.createResource(new URI('conference.ecore'));
+
+  resImport?.loadFromString(dataAsText)
+
+
+
+  // Add resources and set up adapters
+  const resourceArray: EResource[] = [];
+  if(resImport){
+    const adapter = new ResourceChangeAdapter(resources);
+    resImport.eAdapters.add(adapter);
+    resourceArray.push(resImport);
+  }
+  resources.value = resourceArray;
 
 });
+
 watch(router.currentRoute,()=>{
-
   const {instanceid} = (router.currentRoute.value.params);
-  model.value = useInstanceHolder().getInstance(instanceid as string)
+  model.value = getObjectById(instanceid as string);
 
+  // Center the view on the selected node
+  if(instanceid){
+    nextTick(() => {
+      const node = getNodes.value.find(n => n.id === instanceid);
+      if(node){
+        // Get the parent node position if this is a child node
+        let absoluteX = node.position.x;
+        let absoluteY = node.position.y;
+
+        if(node.parentNode){
+          const parentNode = getNodes.value.find(n => n.id === node.parentNode);
+          if(parentNode){
+            absoluteX += parentNode.position.x;
+            absoluteY += parentNode.position.y;
+          }
+        }
+
+        const width = node.width || 450;
+        const height = node.height || 350;
+
+        setCenter(absoluteX + width / 2,
+                  absoluteY + height / 2,
+                  { zoom: 1, duration: 500 });
+      }
+    });
+  }
 })
 
 
-
+const { graph, layout, previousDirection } = useColaLayout()
 const nodes = computed({
 get:() =>{
   let ret:any = [];
 
-  instanceHolder.instances.value.forEach((instance,key)=>{
-    const pos = (PositionHolder.value.get(key))?PositionHolder.value.get(key):{ x: 20, y: 20 };
-    const dim = (DimensionsHolder.value.get(key))?DimensionsHolder.value.get(key):{ width: '200px',height:'200px'};
+  // First pass: collect packages and their classes
+  const packageMap = new Map<string, {packageNode: any, classes: Map<string, any>}>();
+  const packages: any[] = [];
 
-    if('EPackage' == instance.eClass().name){
+  // Iterate over all resources and their contents
+  for(const resource of resources.value){
+    for(const content of resource.eAllContents()){
+      if('EPackage' == content.eClass().name){
+        const id = getObjectId(content);
+        const name = content.eGet(content.eClass().getEStructuralFeatureFromName('name'));
+        const nsURI = content.eGet(content.eClass().getEStructuralFeatureFromName('nsURI'));
 
-      const name = instance.eGet(instance.eClass().getEStructuralFeatureFromName('name'));
-      const nsURI = instance.eGet(instance.eClass().getEStructuralFeatureFromName('nsURI'));
-      const nsPrefix = instance.eGet(instance.eClass().getEStructuralFeatureFromName('nsPrefix'));
-
-      ret.push({
-        id: key,
-        label: 'EPackage: ' + name +' ('+ nsURI+')',
-        data: {  toolbarPosition: Position.Top,instance:instance},
-        position: /*{ x: 100, y: 100 },*/pos,
-        type: 'package',
-
-        style: { backgroundColor: 'rgba(226,231,229,0.5)',...dim},
-      })
+        packages.push({
+          id: id,
+          name: name,
+          instance: content,
+          nsURI: nsURI
+        });
+        packageMap.set(id, {packageNode: null, classes: new Map()});
+      }
     }
-    if('EClass' == instance.eClass().name){
+  }
 
-      const ePaclageId = instance.eClass().getEStructuralFeatureFromName('ePackage');
-      console.log(instance.eGet(ePaclageId))
-      const parent = instanceHolder.identify(instance.eGet(ePaclageId))
-      console.warn(key+' --> '+parent);
+  // Collect classes
+  for(const resource of resources.value){
+    for(const content of resource.eAllContents()){
+      if('EClass' == content.eClass().name){
+        const id = getObjectId(content);
+        const ePaclageId = content.eClass().getEStructuralFeatureFromName('ePackage');
+        const packageObj = content.eGet(ePaclageId);
+        const parent = packageObj ? getObjectId(packageObj) : undefined;
+
+        const classInfo = {
+          id: id,
+          instance: content,
+          parent: parent
+        };
+
+        if(parent && packageMap.has(parent)){
+          packageMap.get(parent)!.classes.set(id, classInfo);
+        }
+      }
+    }
+  }
+
+  // Layout configuration
+  const PACKAGE_SPACING_X = 1200;
+  const CLASS_SPACING_X = 500;
+  const CLASS_SPACING_Y = 80;
+  const CLASS_HEIGHT = 350;
+  const CLASS_START_Y = 40;
+  const CLASS_START_X = 40;
+  const PACKAGE_START_Y = 50;
+  const PACKAGE_PADDING = 60;
+
+  // Second pass: position packages and classes
+  let cumulativePackageX = 50;
+
+  packages.forEach((pkg, pkgIndex) => {
+    const pkgClasses = packageMap.get(pkg.id)?.classes;
+    if(!pkgClasses || pkgClasses.size === 0) return;
+
+    const allClassIds = Array.from(pkgClasses.keys());
+    const maxClassesPerRow = 3;
+    const classPositions = new Map<string, {x: number, y: number, width: number, height: number}>();
+
+    let currentX = CLASS_START_X;
+    let currentY = CLASS_START_Y;
+    let maxHeightInRow = 0;
+    let columnInRow = 0;
+    let maxWidth = 0;
+    let totalHeight = CLASS_START_Y;
+
+    allClassIds.forEach((classId, classIndex) => {
+      const classDim = DimensionsHolder.value.get(classId);
+      let width = 450;
+      let height = CLASS_HEIGHT;
+
+      if (classDim) {
+        const widthStr = typeof classDim.width === 'string' ? classDim.width.replace('px', '') : classDim.width;
+        const heightStr = typeof classDim.height === 'string' ? classDim.height.replace('px', '') : classDim.height;
+
+        const parsedWidth = parseFloat(widthStr);
+        const parsedHeight = parseFloat(heightStr);
+
+        if (!isNaN(parsedWidth) && parsedWidth > 0) {
+          width = parsedWidth;
+        }
+        if (!isNaN(parsedHeight) && parsedHeight > 0) {
+          height = parsedHeight;
+        }
+      }
+
+      if (columnInRow >= maxClassesPerRow) {
+        currentX = CLASS_START_X;
+        currentY += maxHeightInRow + CLASS_SPACING_Y;
+        totalHeight = currentY;
+        maxHeightInRow = 0;
+        columnInRow = 0;
+      }
+
+      classPositions.set(classId, {
+        x: currentX,
+        y: currentY,
+        width: width,
+        height: height
+      });
+
+      maxHeightInRow = Math.max(maxHeightInRow, height);
+      maxWidth = Math.max(maxWidth, currentX + width);
+
+      currentX += width + CLASS_SPACING_X;
+      columnInRow++;
+    });
+
+    totalHeight = currentY + maxHeightInRow;
+
+    const packageWidth = maxWidth + CLASS_START_X;
+    const packageHeight = totalHeight + CLASS_START_Y;
+
+    const pos = PositionHolder.value.get(pkg.id) || {
+      x: cumulativePackageX,
+      y: PACKAGE_START_Y
+    };
+
+    ret.push({
+      id: pkg.id,
+      label: 'EPackage: ' + pkg.name + ' (' + pkg.nsURI + ')',
+      data: { toolbarPosition: Position.Top, instance: pkg.instance},
+      position: toRaw(pos),
+      type: 'package',
+      style: {
+        backgroundColor: 'rgba(226,231,229,0.5)',
+        width: packageWidth + 'px',
+        height: packageHeight + 'px'
+      },
+    });
+
+    cumulativePackageX += packageWidth + PACKAGE_PADDING;
+
+    // Position classes
+    pkgClasses.forEach((classInfo, classId) => {
+      const position = classPositions.get(classId);
+      if(!position) return;
+
+      const classPos = PositionHolder.value.get(classId) || {
+        x: position.x,
+        y: position.y
+      };
       ret.push({
-        id: key,
+        id: classId,
         label: 'EClass',
-        data: {  toolbarPosition: Position.Top,instance:instance},
-        position: /*{ x: 100, y: 100 },//*/pos,
+        data: { toolbarPosition: Position.Top, instance: classInfo.instance},
+        position: toRaw(classPos),
         type: 'class',
-        parentNode:parent,
-        expandParent: true,
-        style: {width: '200px'},//*/dim,
-      })
-    }
+        parentNode: pkg.id,
+        expandParent: true
+      });
+    });
+  });
 
-  })
-  return ret
+  return ret;
 },
 set:(val:Array<Node<any>>)=>{
-  /*const map = new Map<String,XYPosition>();
-  const map2 = new Map<String,any>();
-
-  getNodes.value.map(e=>{
-    map.set(e.id,e.computedPosition);
-    map2.set(e.id,{height:e.dimensions.height+'px',width:e.dimensions.width+'px'});
-  })
-
-  PositionHolder.value = map;
-  DimensionsHolder.value = map2;
-*/
 }
 });
+
 onNodeDragStop((param:NodeDragEvent)=>{
   console.log(param.node)
-  const map = new Map<String,XYPosition>();
-  const map2 = new Map<String,any>();
-
   getNodes.value.map(e=>{
-    //map.set(e.id,e.position);
     PositionHolder.value.set(e.id ,e.position as XYPosition);
     DimensionsHolder.value.set(e.id,{height:e.dimensions.height+'px',width:e.dimensions.width+'px'});
   })
-
-  //PositionHolder.value.set(param.node.id ,param.node.position as XYPosition);
-  //DimensionsHolder.value.set(param.node.id,{height:param.node.dimensions.height+'px',width:param.node.dimensions.width+'px'});
-  //DimensionsHolder.value = map2;
-
-  //PositionHolder.value.set(param.node.id,param.node.position);
 })
 
 const edges = computed(()=>{
   let iedges:any = []
-  instanceHolder.instances.value.forEach((instance,key)=>{
 
-    if('EClass' == instance.eClass().name){
+  // Iterate over all resources and their contents
+  for(const resource of resources.value){
+    for(const content of resource.eAllContents()){
+      if('EClass' == content.eClass().name){
+        const key = getObjectId(content);
 
-
-   const superTypeClassFeature = instance.eClass().getEStructuralFeatureFromName('eSuperTypes');
-   const list = instance.eGet(superTypeClassFeature) as EList<EClass>;
-   for (const entry of list){
-     const id = instanceHolder.identify(entry);
-     iedges.push({id:`${key}_${id}`,
-       source:key,
-       sourceHandle:key,
-       target:id,
-       markerEnd:MarkerType.ArrowClosed,
-       type:'step'})
-   }
-
-      const referenceClassFeature = instance.eClass().getEStructuralFeatureFromName('eReferences');
-      const list2 = instance.eGet(referenceClassFeature) as EList<EReference>;
-      for (const entry of list2){
-
-        const eReferenceType = entry.eGet(entry.eClass().getEStructuralFeatureFromName('eReferenceType'));
-        const name = entry.eGet(entry.eClass().getEStructuralFeatureFromName('name'));
-        let upperBound = -1;
-        let lowerBound= 0;
-        try{
-            lowerBound = entry.eGet(entry.eClass().getEStructuralFeatureFromName('lowerBound'));
-            upperBound = entry.eGet(entry.eClass().getEStructuralFeatureFromName('upperBound'));
-        }catch (e){
-          console.log(e);
+        const superTypeClassFeature = content.eClass().getEStructuralFeatureFromName('eSuperTypes');
+        const list = content.eGet(superTypeClassFeature) as EList<EClass>;
+        for (const entry of list){
+          const id = getObjectId(entry);
+          iedges.push({id:`${key}_${id}`,
+            source:key,
+            sourceHandle:key,
+            target:id,
+            markerEnd:MarkerType.ArrowClosed,
+            type:'step'})
         }
 
+        const referenceClassFeature = content.eClass().getEStructuralFeatureFromName('eReferences');
+        const list2 = content.eGet(referenceClassFeature) as EList<EReference>;
+        for (const entry of list2){
+          try{
+            const eReferenceType = entry.eGet(entry.eClass().getEStructuralFeatureFromName('eReferenceType'));
+            const name = entry.eGet(entry.eClass().getEStructuralFeatureFromName('name'));
+            let upperBound = -1;
+            let lowerBound= 0;
 
-        const id = instanceHolder.identify(eReferenceType);
-        let obj:any =
-            {id:`${key}_${id}_${name}`
-              ,source: key,
-              target:id,
-              sourceHandle:name,
-              targetHandle:'target' ,
-              type:'step',
-              label:`[${lowerBound}:${upperBound}]` ,
-              style: { stroke: 'orange','stroke-dasharray':"5,10,5" }};
-        iedges.push(obj)
+            lowerBound = entry.eGet(entry.eClass().getEStructuralFeatureFromName('lowerBound'));
+            upperBound = entry.eGet(entry.eClass().getEStructuralFeatureFromName('upperBound'));
+
+            const id = getObjectId(eReferenceType);
+            let obj:any =
+                {id:`${key}_${id}_${name}`
+                  ,source: key,
+                  target:id,
+                  sourceHandle:name,
+                  targetHandle:'target' ,
+                  type:'step',
+                  label:`[${lowerBound}:${upperBound}]` ,
+                  style: { stroke: 'orange','stroke-dasharray':"5,10,5" }};
+            iedges.push(obj)
+          }catch (e){
+            console.log(e);
+          }
+        }
       }
     }
+  }
 
-  })
   return iedges
 })
 
 const selectInstrance = (ev:any)=>{
   router.push({name:MODELING_PARAM,params:{instanceid:ev.node.id}});
 }
+
 onConnect((params)=>{
-  const source = instanceHolder.getInstance(params.source);
-  const target = instanceHolder.getInstance(params.target);
+  const source = getObjectById(params.source);
+  const target = getObjectById(params.target);
 
   const superTypeFeature = source?.eClass().getEStructuralFeatureFromName('eSuperTypes');
   if(superTypeFeature){
     const list = source?.eGet(superTypeFeature!) as EList<any>;
     list.add(target);
+    source?.eSet(superTypeFeature,list)
   }
 })
 
+async function layoutGraph(direction:string) {
+ const slayout = layout(nodes.value, edges.value, direction) as Node[];
+  const map = new Map<String,XYPosition>();
+  const map2 = new Map<String,any>();
+
+  slayout.map(e=>{
+    map.set(e.id,e.position);
+    map2.set(e.id,{height:e.dimensions.height+'px',width:e.dimensions.width+'px'});
+  })
+
+  PositionHolder.value = map;
+  DimensionsHolder.value = map2;
+
+  setNodes(slayout)
+  nextTick(() => {
+    fitView()
+  })
+}
 
 </script>
 <template>
-  <Tree class="appmenu"></Tree>
-  <div class="iflexed">
+  <div class="modeling-wrapper">
+    <Tree class="appmenu"></Tree>
+    <div class="iflexed">
 
-    <MenubarV></MenubarV>
+    <MenubarV @import="()=>layoutGraph('TB')"></MenubarV>
 
 
 
@@ -249,9 +446,13 @@ onConnect((params)=>{
   </Splitter>
 
   </div>
-
+  </div>
 </template>
 <style lang="scss">
+.modeling-wrapper {
+  display: grid;
+  grid-template-columns: 350px 1fr;
+}
 @import 'https://cdn.jsdelivr.net/npm/@vue-flow/core@1.39.0/dist/style.css';
 @import 'https://cdn.jsdelivr.net/npm/@vue-flow/core@1.39.0/dist/theme-default.css';
 @import 'https://cdn.jsdelivr.net/npm/@vue-flow/controls@latest/dist/style.css';

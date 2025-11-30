@@ -10,7 +10,11 @@ export const INSTANCE_PAGE_BASE  = 'InstanceBase';
     const router = createRouter({
   history: createWebHashHistory(import.meta.env.BASE_URL),
   routes: [
-
+    {
+      path: '/',
+      name: 'home',
+      component: HomeView
+    },
     {
       path: '/test',
       name: 'test',

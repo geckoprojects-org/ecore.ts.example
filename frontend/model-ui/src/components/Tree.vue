@@ -1,22 +1,29 @@
 <script setup lang="ts">
-import {computed, ref} from "vue";
+import {computed, ref, inject} from "vue";
 
 import Button from "primevue/button";
 import {useResource} from "@/modelUiBuilder/impl/composeable/Resource";
 
 import router, {INSTANCE_PAGE, MODELING_PARAM, NEW_INSTANCE_PAGE} from "@/router";
-import {useInstanceHolder} from "@/modelUiBuilder/impl/composeable/InstanceHolder";
 import {isEPackage} from "@/ecore/EPackageExt";
-import {EClass, EClassifier, EDataType, EPackage, EResource, isEDataType, URI} from "@/ecore";
+import {
+  EClass,
+  EClassifier,
+  EDataType,
+  EPackage,
+  EResource,
+  isEDataType,
+  URI,
+  EPackageImpl,
+  EcorePackageImpl, EcoreFactory, EObject
+} from "@/ecore";
 import {isEClass} from "@/ecore/EClassExt";
-import ShortUniqueId from "short-unique-id";
 import {useDataTypeHolder} from "@/modelUiBuilder/impl/composeable/DataTypeHolder";
 import Tree from 'primevue/tree';
 import {useRoute} from "vue-router";
 import config from "@/config/config";
+import {useObjectId} from "@/composables/useObjectId";
 
-
-const uid = new ShortUniqueId({ length: 10 });
 
 const items = ref([
   {
@@ -29,10 +36,27 @@ const items = ref([
   }
 
 ]);
-const {store} = useResource()
-const {instances,identify,getInstance} = useInstanceHolder();
+const {store,efc} = useResource()
+const {getObjectId, getObjectById} = useObjectId();
 const {setDataTypes} = useDataTypeHolder();
 const route = useRoute();
+
+// Get resources from Modeling.vue (injected)
+const modelingResources = inject<{value: EResource[]}>('modelingResources', {value: []});
+
+// Compute all instances from resources
+const instances = computed(() => {
+  const allInstances = new Map<string, EObject>();
+
+  for(const resource of modelingResources.value){
+    for(const content of resource.eAllContents()){
+      const id = getObjectId(content);
+      allInstances.set(id, content);
+    }
+  }
+
+  return allInstances;
+});
 
 const nodes = computed(()=>{
 
@@ -50,11 +74,11 @@ const nodes = computed(()=>{
     return undefined;
   };
   const _findParentAndAppend=(item:string)=>{
-    let inst =  getInstance(item);
+    let inst =  instances.value.get(item);
 
     if(inst){
       let name = '';
-      let type = inst.eClass().name;;
+      let type = inst.eClass().name;
       try{
          name = inst.eGet(inst.eClass().getEStructuralFeatureFromName('name'));
       }
@@ -62,8 +86,8 @@ const nodes = computed(()=>{
         console.log(e);
       }
 
-
-      const parentid = identify(getInstance(item)!.eContainer());
+      const container = inst.eContainer();
+      const parentid = container ? getObjectId(container) : undefined;
       if(parentid){
         const parent:any = _findinTree(tree,parentid!)
         if(parent){
@@ -98,25 +122,15 @@ const nodes = computed(()=>{
 
 
 const addEPackage = ()=>{
-  const resUri = config.ECORE_PATH;
-  const className = 'EPackage';
-  const res = (store.value.find(e=>{
-    console.log(e.res?.eURI.toString())
-    console.log(resUri)
-    return e.res?.eURI.toString() == resUri
-  }))?.res
+  const apackage =  efc.createEPackage()
 
+  // Add package to the first resource
+  if(modelingResources.value.length > 0){
+    modelingResources.value[0].eContents().add(apackage);
+  }
 
-  let uris = new URI(resUri+'#//'+className);
-  const eClass = res?.eResourceSet().getEObject(uris,false) as EClass;
-
-  const instanceInternal =eClass?.ePackage.eFactoryInstance.create(eClass);
-  const ePack = eClass.getEStructuralFeatureFromName('ePackage');
-
-
-  const id =uid.rnd();
-  useInstanceHolder().setInstance(id,instanceInternal);
-  //router.push({name:MODELING_PARAM,params:{instanceid:id}})
+  const id = getObjectId(apackage);
+  router.push({name:MODELING_PARAM,params:{instanceid:id}})
 }
 
 const selectedKey = computed({

@@ -11,7 +11,7 @@ import { WriteStream } from "fs"
 import { Err, Ok, Result } from "ts-results-es"
 import {
     EClass,
-    EClassifier,
+    EClassifier, EcoreUtils,
     EDataType,
     EDiagnostic,
     EDiagnosticImpl,
@@ -301,7 +301,13 @@ export class XMLEncoder implements EEncoder {
                         if (!this.isNil(eObject, eFeature)) {
                             switch (this.getSaveResourceKindSingle(eObject, eFeature)) {
                                 case SaveResourceKind.Cross: {
-                                    break
+
+                                    const  result:EObject = eObject.eGet(eFeature);
+                                    const epn = result.eClass().ePackage.name;
+                                    const ecn = result.eClass().name;
+                                    const name = epn + ":" + ecn + " " + EcoreUtils.getURI(result);
+                                    this._str.addAttribute(this.getFeatureQName(eFeature), name)
+                                    continue LOOP;
                                 }
                                 case SaveResourceKind.Same: {
                                     this.saveIDRefSingle(eObject, eFeature)
@@ -334,6 +340,7 @@ export class XMLEncoder implements EEncoder {
                         } else {
                             switch (this.getSaveResourceKindMany(eObject, eFeature)) {
                                 case SaveResourceKind.Cross: {
+                                    this.saveIDRefMany(eObject, eFeature)
                                     break
                                 }
                                 case SaveResourceKind.Same: {
@@ -349,7 +356,8 @@ export class XMLEncoder implements EEncoder {
                     case SaveFeatureKind.ObjectHREFMany: {
                         switch (this.getSaveResourceKindMany(eObject, eFeature)) {
                             case SaveResourceKind.Cross: {
-                                break
+                                this.saveIDRefMany(eObject, eFeature)
+                                continue LOOP
                             }
                             case SaveResourceKind.Same: {
                                 this.saveIDRefMany(eObject, eFeature)

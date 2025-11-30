@@ -12,7 +12,7 @@ import Nora from '@primevue/themes/nora';
 import 'primeicons/primeicons.css'
 import Ripple from 'primevue/ripple';
 import {definePreset} from "@primevue/themes";
-
+import ToastService from 'primevue/toastservice';
 
 const app = createApp(App);
 const MyPreset = definePreset(Aura, {
@@ -65,5 +65,5 @@ app.use(PrimeVue, {
 
 app.directive('ripple', Ripple);
 app.use(router)
-
+app.use(ToastService);
 app.mount('#app')

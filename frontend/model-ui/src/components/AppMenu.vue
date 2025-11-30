@@ -7,15 +7,16 @@ import Button from "primevue/button";
 import {useResource} from "@/modelUiBuilder/impl/composeable/Resource";
 
 import router, {INSTANCE_PAGE, MODELING_PARAM, NEW_INSTANCE_PAGE} from "@/router";
-import {useInstanceHolder} from "@/modelUiBuilder/impl/composeable/InstanceHolder";
+import {useMetaModelInstanceHolder, useDataInstanceHolder} from "@/modelUiBuilder/impl/composeable/InstanceHolder";
 import {isEPackage} from "@/ecore/EPackageExt";
 import {EClass, EClassifier, EDataType, EPackage, EResource, isEDataType, URI} from "@/ecore";
 import {isEClass} from "@/ecore/EClassExt";
 import ShortUniqueId from "short-unique-id";
 import {useDataTypeHolder} from "@/modelUiBuilder/impl/composeable/DataTypeHolder";
+import {useRoute} from "vue-router";
 
 
-
+const route = useRoute();
 const uid = new ShortUniqueId({ length: 10 });
 
 const items = ref([
@@ -30,7 +31,14 @@ const items = ref([
 
 ]);
 const {store} = useResource()
-const {instances} = useInstanceHolder();
+
+// Determine which instance holder to use based on current route
+const isInstanceRoute = computed(() => route.path.startsWith('/instance'));
+const instances = computed(() => {
+  const holder = isInstanceRoute.value ? useDataInstanceHolder() : useMetaModelInstanceHolder();
+  return holder.instances.value;
+});
+
 const {setDataTypes} = useDataTypeHolder();
 const items2 = computed(()=>  {
   let packages:any = [{
@@ -85,35 +93,67 @@ const instancesRep = computed(()=>{
 
 })
 const toInstPage = (d:any)=>{
-  /*router.push({
-    name:NEW_INSTANCE_PAGE,
-    params:{className:d.eClass,resUri:d.res,ePackage:d.ePackage}
-  })*/
   const resUri = d.res;
   const ePackage = d.ePackage;
   const className = d.eClass;
 
   const res = (store.value.find(e=>e.res?.eURI.toString() == resUri))?.res
 
-
-
   let uris = new URI(resUri+'#//'+className);
   const eClass = res?.eResourceSet().getEObject(uris,false) as EClass;
 
-  const instanceInternal =eClass?.ePackage.eFactoryInstance.create(eClass);
+  // Check if class is abstract
+  if(eClass?.abstract){
+    console.warn(`Cannot create instance of abstract class: ${className}`);
+    return;
+  }
 
+  // Create instance from the EClass using the factory
+  const instanceInternal = eClass?.ePackage.eFactoryInstance.create(eClass);
 
-  //eClass.ePackage.eFactoryInstance.createFromString(eClass.instanceTypeName.)
+  if(isInstanceRoute.value){
+    // For data instances, add to the data package and get its ID
+    const dataHolder = useDataInstanceHolder();
 
-  const id =uid.rnd();
-  useInstanceHolder().setInstance(id,instanceInternal);
-  //router.push({name:INSTANCE_PAGE,params:{instanceid:id}})
+    // Ensure data resource exists before adding instance
+    const resourceSet = res?.eResourceSet();
+    const existingResource = resourceSet?.getResource(new URI('data://instances'), false);
+
+    if(!existingResource && resourceSet){
+      const dataResource = resourceSet.createResource(new URI('data://instances'));
+      dataHolder.setResource(dataResource);
+    }
+
+    const instanceId = dataHolder.addInstance(instanceInternal);
+
+    // Navigate to the newly created instance
+    router.push({
+      name: INSTANCE_PAGE,
+      params: { instanceid: instanceId }
+    });
+  } else {
+    // For metamodel instances
+    const id = uid.rnd();
+    useMetaModelInstanceHolder().setInstance(id, instanceInternal);
+
+    router.push({
+      name: MODELING_PARAM,
+      params: { instanceid: id }
+    });
+  }
 }
 const goInstance = (e:any)=>{
-  router.push({
-    name:INSTANCE_PAGE,
-    params:{instanceid:e.id}
-  })
+  if(isInstanceRoute.value){
+    router.push({
+      name:INSTANCE_PAGE,
+      params:{instanceid:e.id}
+    })
+  } else {
+    router.push({
+      name:MODELING_PARAM,
+      params:{instanceid:e.id}
+    })
+  }
 }
 </script>
 
